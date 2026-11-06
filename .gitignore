@@ -1,0 +1,5 @@
+.build/
+.swiftpm/
+dist/
+Packaging/AppIcon.icns
+scripts/local.env
