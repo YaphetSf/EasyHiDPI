@@ -23,13 +23,13 @@ public enum DDC {
         return withChecksum([0x84, 0x03, code, UInt8(clamped >> 8), UInt8(clamped & 0xFF)])
     }
 
-    /// A Samsung S32B80P answers a first read with `88 02` and quick repeat reads with `80 be`, the
-    /// DDC/CI null header, over the payload of that reply. So bytes 1 and 2 are not trusted, and the
-    /// checksum is verified against the standard header, which keeps the payload check just as strict.
+    /// Only a `88 02` header is a reply. A display with nothing to say sends the null header `80 be`,
+    /// and the bytes after it are whatever its buffer last held, often an older reply that still checks out.
     public static func parseReply(_ bytes: [UInt8], code: UInt8) -> DDCReading? {
         guard bytes.count >= replyLength,
-              bytes[0] == 0x6E, bytes[3] == 0x00, bytes[4] == code else { return nil }
-        let checksum = bytes[3..<(replyLength - 1)].reduce(UInt8(0x50 ^ 0x6E ^ 0x88 ^ 0x02), ^)
+              bytes[0] == 0x6E, bytes[1] == 0x88, bytes[2] == 0x02,
+              bytes[3] == 0x00, bytes[4] == code else { return nil }
+        let checksum = bytes[0..<(replyLength - 1)].reduce(UInt8(0x50), ^)
         guard checksum == bytes[replyLength - 1] else { return nil }
         let maximum = Int(bytes[6]) << 8 | Int(bytes[7])
         let current = Int(bytes[8]) << 8 | Int(bytes[9])

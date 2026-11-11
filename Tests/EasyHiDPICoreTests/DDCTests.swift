@@ -25,28 +25,34 @@ struct DDCTests {
         #expect(DDC.parseReply(philips, code: 0x10) == DDCReading(current: 99, maximum: 100))
     }
 
-    // A real Samsung S32B80P sends this on quick repeat reads: a null header over its last reply's payload.
-    @Test func acceptsSamsungHeaderQuirkWhenThePayloadChecksOut() {
-        let samsung: [UInt8] = [0x6E, 0x80, 0xBE, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x64, 0xA4]
-        #expect(DDC.parseReply(samsung, code: 0x10) == DDCReading(current: 100, maximum: 100))
+    // Captured from a real Samsung S32B80P: the request sent twice, then the same request sent once.
+    // The lone request gets a null header over the payload the earlier reply left behind.
+    @Test func rejectsANullHeaderOverAnOlderReply() {
+        let answered: [UInt8] = [0x6E, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x64, 0xA4]
+        let unanswered: [UInt8] = [0x6E, 0x80, 0xBE, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x64, 0xA4]
 
-        var corrupted = samsung
-        corrupted[9] = 0x20
-        #expect(DDC.parseReply(corrupted, code: 0x10) == nil)
+        #expect(DDC.parseReply(answered, code: 0x10) == DDCReading(current: 100, maximum: 100))
+        #expect(DDC.parseReply(unanswered, code: 0x10) == nil)
     }
 
-    // Captured from a real Samsung S32B80P set to 76 by hand: the first read, then a quick repeat.
-    @Test func readsTheSameValueFromAFirstReadAndARepeat() {
-        let first: [UInt8] = [0x6E, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x4C, 0x8C]
-        let repeated: [UInt8] = [0x6E, 0x80, 0xBE, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x4C, 0x8C]
+    // Captured from a real Samsung S32B80P set to 76 by hand: a reply, then a null header over its payload.
+    @Test func readsOnlyTheReplyOfAReplyAndANullMessage() {
+        let reply: [UInt8] = [0x6E, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x4C, 0x8C]
+        let null: [UInt8] = [0x6E, 0x80, 0xBE, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x4C, 0x8C]
 
-        #expect(DDC.parseReply(first, code: 0x10) == DDCReading(current: 76, maximum: 100))
-        #expect(DDC.parseReply(repeated, code: 0x10) == DDCReading(current: 76, maximum: 100))
+        #expect(DDC.parseReply(reply, code: 0x10) == DDCReading(current: 76, maximum: 100))
+        #expect(DDC.parseReply(null, code: 0x10) == nil)
     }
 
-    // A real Samsung S32B80P returned this just after a power cycle: a null header over EDID bytes.
+    // A real Samsung S32B80P returns this to a lone request after its EDID was read: a null header over EDID bytes.
     @Test func rejectsANullHeaderOverOtherData() {
         let reply: [UInt8] = [0x6E, 0x80, 0xBE, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]
+        #expect(DDC.parseReply(reply, code: 0x10) == nil)
+    }
+
+    // A real Samsung U28E590 on HDMI IN 2 returns unrelated bytes to every read.
+    @Test func rejectsUnrelatedBytes() {
+        let reply: [UInt8] = [0x8C, 0xAB, 0x5A, 0xD4, 0x02, 0x4F, 0x93, 0xAF, 0xFA, 0xBF, 0x4A]
         #expect(DDC.parseReply(reply, code: 0x10) == nil)
     }
 

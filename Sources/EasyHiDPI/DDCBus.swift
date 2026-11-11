@@ -98,7 +98,13 @@ final class DDCBus: @unchecked Sendable {
         guard let functions, let service = services[id] else { return nil }
         for _ in 0..<4 {
             var request = DDC.readRequest(code: DDC.brightnessCode)
-            guard functions.write(service, DDC.chipAddress, DDC.dataAddress, &request, UInt32(request.count)) == kIOReturnSuccess else {
+            // The request goes out twice: a Samsung S32B80P answers a lone request with a null message.
+            var written = kIOReturnSuccess
+            for _ in 0..<2 {
+                written = functions.write(service, DDC.chipAddress, DDC.dataAddress, &request, UInt32(request.count))
+                usleep(10_000)
+            }
+            guard written == kIOReturnSuccess else {
                 usleep(60_000)
                 continue
             }
