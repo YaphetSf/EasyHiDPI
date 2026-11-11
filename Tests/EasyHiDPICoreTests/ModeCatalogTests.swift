@@ -106,11 +106,13 @@ struct ModeCatalogTests {
         #expect(ModeCatalog.rateLabel(47.94999694824219) == "48Hz")
     }
 
-    @Test func rowsAreHiDPIOnlyWithNativeAspectDownToHalfNative() {
+    @Test func rowsAreEveryHiDPISizeWithTheNativeAspect() {
         let current = vg27aModes.first { $0.id == 83 }!
         let catalog = ModeCatalog(modes: vg27aModes, current: current, overrideSizes: [])
 
-        #expect(catalog.rows.map(\.size) == [size(1920, 1080), size(1600, 900), size(1440, 810), size(1280, 720)])
+        #expect(catalog.rows.map(\.size) == [
+            size(1920, 1080), size(1600, 900), size(1440, 810), size(1280, 720), size(1024, 576)
+        ])
         #expect(catalog.rows.filter(\.isCurrent).map(\.size) == [size(1600, 900)])
     }
 

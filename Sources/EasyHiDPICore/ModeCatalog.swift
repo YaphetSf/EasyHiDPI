@@ -34,12 +34,7 @@ public struct ModeCatalog: Sendable {
         self.current = current
 
         let native = Self.nativePixels(modes: modes, current: current)
-        var sizes = Set(modes.filter {
-            $0.isHiDPI
-                && $0.size.hasSameAspect(as: native)
-                && $0.size.width * 2 >= native.width
-                && $0.size.height * 2 >= native.height
-        }.map(\.size))
+        var sizes = Set(modes.filter { $0.isHiDPI && $0.size.hasSameAspect(as: native) }.map(\.size))
         let offered = Set(modes.filter(\.isHiDPI).map(\.size))
         sizes.formUnion(overrideSizes.filter(offered.contains))
         if current.isHiDPI { sizes.insert(current.size) }
