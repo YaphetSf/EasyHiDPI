@@ -88,23 +88,26 @@ final class DDCBus: @unchecked Sendable {
         }
         pendingWrites[id] = nil
         if let functions, let service = services[id] {
-            var request = DDC.writeRequest(code: DDC.brightnessCode, value: value)
-            _ = functions.write(service, DDC.chipAddress, DDC.dataAddress, &request, UInt32(request.count))
+            _ = send(DDC.writeRequest(code: DDC.brightnessCode, value: value), to: service, with: functions)
         }
         queue.asyncAfter(deadline: .now() + .milliseconds(50)) { [self] in drainWrites() }
+    }
+
+    /// Every message goes out twice: a Samsung S32B80P answers a lone read request with a null message.
+    private func send(_ message: [UInt8], to service: CFTypeRef, with functions: IOAVFunctions) -> Bool {
+        var message = message
+        var status = kIOReturnSuccess
+        for _ in 0..<2 {
+            status = functions.write(service, DDC.chipAddress, DDC.dataAddress, &message, UInt32(message.count))
+            usleep(10_000)
+        }
+        return status == kIOReturnSuccess
     }
 
     private func readNow(_ id: CGDirectDisplayID) -> DDCReading? {
         guard let functions, let service = services[id] else { return nil }
         for _ in 0..<4 {
-            var request = DDC.readRequest(code: DDC.brightnessCode)
-            // The request goes out twice: a Samsung S32B80P answers a lone request with a null message.
-            var written = kIOReturnSuccess
-            for _ in 0..<2 {
-                written = functions.write(service, DDC.chipAddress, DDC.dataAddress, &request, UInt32(request.count))
-                usleep(10_000)
-            }
-            guard written == kIOReturnSuccess else {
+            guard send(DDC.readRequest(code: DDC.brightnessCode), to: service, with: functions) else {
                 usleep(60_000)
                 continue
             }
