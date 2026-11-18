@@ -15,7 +15,7 @@ func printDisplayList() {
     for display in displays {
         let catalog = display.catalog
         let current = catalog.current
-        print("\(display.name) \(display.identity.label) rotation \(display.rotation)")
+        print("\(display.name) \(display.identity.label) rotation \(display.rotation)\(display.canRotate ? "" : " fixed")")
         print("  origin \(Int(display.bounds.minX)),\(Int(display.bounds.minY))\(display.canMove ? "" : " fixed")")
         print("  current \(current.size.label) pixels \(current.pixels.label) \(ModeCatalog.rateLabel(current.refreshRate))")
         print("  rates \(labels(catalog.rates))")

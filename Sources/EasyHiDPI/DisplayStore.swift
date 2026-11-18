@@ -13,6 +13,7 @@ final class DisplayStore {
     private var selectedID: CGDirectDisplayID?
     private var switchingTo: [CGDirectDisplayID: DisplayModeInfo] = [:]
     private var movingTo: [CGDirectDisplayID: CGPoint] = [:]
+    private var rotatingTo: [CGDirectDisplayID: Int] = [:]
     private var wallpapers: [WallpaperKey: CGImage] = [:]
     @ObservationIgnored private var requestedWallpapers = Set<WallpaperKey>()
 
@@ -34,6 +35,7 @@ final class DisplayStore {
 
     func refresh() {
         displays = SystemDisplays.all()
+        rotatingTo = rotatingTo.filter { id, target in displays.first { $0.id == id }?.rotation != target }
         if !displays.contains(where: { $0.id == selectedID }) {
             selectedID = displays.first(where: \.isMain)?.id ?? displays.first?.id
             isAddingSize = false
@@ -90,7 +92,8 @@ final class DisplayStore {
 
     func activeSize(of display: PhysicalDisplay) -> DisplaySize? {
         if let target = switchingTo[display.id], target.isHiDPI { return target.size }
-        return display.catalog.rows.first(where: \.isCurrent)?.size
+        let size = display.catalog.rows.first(where: \.isCurrent)?.size
+        return swapsAxes(display) ? size.map { DisplaySize(width: $0.height, height: $0.width) } : size
     }
 
     func activeRate(of display: PhysicalDisplay) -> Double {
@@ -125,8 +128,10 @@ final class DisplayStore {
     // MARK: Arrangement
 
     func bounds(of display: PhysicalDisplay) -> CGRect {
-        guard let origin = movingTo[display.id] else { return display.bounds }
-        return CGRect(origin: origin, size: display.bounds.size)
+        var bounds = display.bounds
+        if let origin = movingTo[display.id] { bounds.origin = origin }
+        if swapsAxes(display) { bounds.size = CGSize(width: bounds.height, height: bounds.width) }
+        return bounds
     }
 
     /// The tile settles first; applying the arrangement makes the displays blink.
@@ -153,6 +158,32 @@ final class DisplayStore {
             }
             refresh()
         }
+    }
+
+    // MARK: Rotation
+
+    func activeRotation(of display: PhysicalDisplay) -> Int {
+        rotatingTo[display.id] ?? display.rotation
+    }
+
+    /// The tile turns first; rotating blanks the display while it reconfigures. The turn stays pending
+    /// until a refresh sees it, and fails only if none has after a few seconds.
+    func rotate(_ display: PhysicalDisplay, to degrees: Int) {
+        guard display.canRotate, degrees != activeRotation(of: display) else { return }
+        rotatingTo[display.id] = degrees
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            MonitorPanel.rotate(display.id, to: degrees)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [self] in
+            guard rotatingTo[display.id] == degrees else { return }
+            refresh()
+            guard rotatingTo.removeValue(forKey: display.id) != nil else { return }
+            errorMessage = "Could not rotate \(display.name) to \(DisplayRotation.label(degrees))."
+        }
+    }
+
+    private func swapsAxes(_ display: PhysicalDisplay) -> Bool {
+        DisplayRotation.swapsAxes(from: display.rotation, to: activeRotation(of: display))
     }
 
     // MARK: Brightness

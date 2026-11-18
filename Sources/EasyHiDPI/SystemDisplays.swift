@@ -8,6 +8,7 @@ struct PhysicalDisplay: Identifiable {
     let identity: DisplayIdentity
     let serial: UInt32
     let rotation: Int
+    let canRotate: Bool
     /// In global display points with the origin at the top left, as System Settings arranges them.
     let bounds: CGRect
     let isMain: Bool
@@ -87,6 +88,7 @@ enum SystemDisplays {
             identity: identity,
             serial: CGDisplaySerialNumber(id),
             rotation: rotation,
+            canRotate: MonitorPanel.canRotate(id),
             bounds: CGDisplayBounds(id),
             isMain: CGDisplayIsMain(id) != 0,
             canMove: CGDisplayIsMain(id) == 0 && CGDisplayIsInMirrorSet(id) == 0,

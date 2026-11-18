@@ -323,6 +323,9 @@ private struct DisplayControls: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
+                if display.canRotate {
+                    RotationMenu(store: store, display: display)
+                }
                 if display.hasOverride {
                     OverrideMenu(store: store, display: display)
                 }
@@ -404,6 +407,35 @@ private struct ModePicker: View {
             store.isModePickerExpanded.toggle()
             if !store.isModePickerExpanded { store.isAddingSize = false }
         }
+    }
+}
+
+private struct RotationMenu: View {
+    let store: DisplayStore
+    let display: PhysicalDisplay
+
+    var body: some View {
+        let active = store.activeRotation(of: display)
+        Menu {
+            Picker("Rotation", selection: Binding(
+                get: { active },
+                set: { store.rotate(display, to: $0) }
+            )) {
+                ForEach(DisplayRotation.all, id: \.self) { degrees in
+                    Text(DisplayRotation.label(degrees)).tag(degrees)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Image(systemName: "rotate.right")
+                .frame(width: 22, height: 16)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Rotation")
+        .accessibilityValue(DisplayRotation.label(active))
     }
 }
 
