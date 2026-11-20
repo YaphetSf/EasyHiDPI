@@ -25,6 +25,14 @@ struct DisplayArrangementTests {
         #expect(snap(vg27a, to: CGPoint(x: 1930, y: centred + 10), others: [main, philips], tolerance: 20) == CGPoint(x: 1920, y: centred))
     }
 
+    @Test func alignmentsLeaveTheSpotsBetweenThemReachable() {
+        // The VG27A as sized now: top, centre and bottom alignment are 135 points apart, and a wide
+        // tolerance used to lock every spot in between to one of them.
+        let small = CGRect(x: 1920, y: 135, width: 1440, height: 810)
+        #expect(snap(small, to: CGPoint(x: 1920, y: 70), others: [main], tolerance: 186) == CGPoint(x: 1920, y: 70))
+        #expect(snap(small, to: CGPoint(x: 1920, y: 120), others: [main], tolerance: 186) == CGPoint(x: 1920, y: 135))
+    }
+
     @Test func droppingOnTheMainDisplayPushesItToTheNearestFreeEdge() {
         #expect(snap(vg27a, to: CGPoint(x: 500, y: 300), others: [main, philips]) == CGPoint(x: 500, y: 1080))
     }

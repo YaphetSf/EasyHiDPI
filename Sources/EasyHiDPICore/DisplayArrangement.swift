@@ -7,7 +7,8 @@ public enum DisplayArrangement {
 
     /// Returns the valid origin nearest to `proposed`, or the current origin if there is none.
     /// `alignmentTolerance` is in the same points as the rects: within it, the display locks to a
-    /// neighbour's start, centre or end.
+    /// neighbour's start, centre or end. It shrinks where those three are close, so every spot
+    /// between them can still be reached.
     public static func snappedOrigin(
         of moving: CGRect,
         proposed: CGPoint,
@@ -65,8 +66,10 @@ public enum DisplayArrangement {
             neighbourStart + (neighbourLength - length) / 2,
             neighbourStart + neighbourLength - length
         ]
+        let spacing = abs(neighbourLength - length) / 2
+        let reach = spacing > 0 ? min(tolerance, spacing / 3) : tolerance
         let closest = alignments.min { abs($0 - clamped) < abs($1 - clamped) } ?? clamped
-        let value = abs(closest - clamped) <= tolerance ? closest : clamped
+        let value = abs(closest - clamped) <= reach ? closest : clamped
         return value.rounded()
     }
 
@@ -75,7 +78,7 @@ public enum DisplayArrangement {
             && first.minY < second.maxY && first.maxY > second.minY
     }
 
-    private static func sharesEdge(_ first: CGRect, _ second: CGRect) -> Bool {
+    static func sharesEdge(_ first: CGRect, _ second: CGRect) -> Bool {
         let overlapX = min(first.maxX, second.maxX) - max(first.minX, second.minX)
         let overlapY = min(first.maxY, second.maxY) - max(first.minY, second.minY)
         let touchesSideways = first.maxX == second.minX || second.maxX == first.minX

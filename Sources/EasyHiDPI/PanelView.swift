@@ -14,17 +14,32 @@ struct PanelView: View {
     let store: DisplayStore
     let onSizeChange: (CGSize) -> Void
 
+    /// While a tile is dragged the map takes the room of everything below it. That stays laid out,
+    /// only hidden, so the panel keeps its size.
+    @State private var isArranging = false
+    @State private var arrangingSize: CGSize = .zero
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let message = store.errorMessage {
                 ErrorBanner(message: message) { store.errorMessage = nil }
             }
-            DisplayMap(store: store)
-            if let display = store.selected {
-                DisplayControls(store: store, display: display)
-                    .id(display.id)
+            VStack(alignment: .leading, spacing: 14) {
+                Color.clear.frame(height: Metrics.mapHeight)
+                if let display = store.selected {
+                    DisplayControls(store: store, display: display)
+                        .id(display.id)
+                }
+                Footer(store: store)
             }
-            Footer(store: store)
+            .opacity(isArranging ? 0 : 1)
+            .allowsHitTesting(!isArranging)
+            .accessibilityHidden(isArranging)
+            .onGeometryChange(for: CGSize.self, of: \.size) { arrangingSize = $0 }
+            .overlay(alignment: .top) {
+                DisplayMap(store: store, isArranging: $isArranging, arrangingSize: arrangingSize)
+                    .frame(height: isArranging ? arrangingSize.height : Metrics.mapHeight)
+            }
         }
         .padding(Metrics.padding)
         .frame(width: Metrics.panelWidth)
@@ -68,31 +83,44 @@ private struct MapLayout {
     func globalPoint(fromMap point: CGPoint) -> CGPoint {
         CGPoint(x: (point.x - origin.x) / scale, y: (point.y - origin.y) / scale)
     }
+
+    func mapPoint(fromGlobal point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x * scale + origin.x, y: point.y * scale + origin.y)
+    }
 }
 
 private struct TileDrag {
     let id: CGDirectDisplayID
     let size: CGSize
-    /// Where the cursor holds the tile, as a fraction of its size, so it stays under the cursor when the map zooms.
+    /// Where the cursor holds the tile, as a fraction of its size: the tile stays under the cursor
+    /// whatever the map's zoom.
     let grab: CGPoint
-    /// Zoomed out and frozen for the whole drag, with room for the tile on every side.
-    let layout: MapLayout
+    /// Closest first. The drag moves one step out each time the cursor reaches an edge, and the
+    /// pointer moves with the held spot.
+    let steps: [MapLayout]
+    var step = 0
     var proposed: CGPoint
     var snapped: CGPoint
+
+    var layout: MapLayout { steps[step] }
 }
 
 /// The displays as System Settings arranges them: position and size are live workspace points, so
 /// a tile grows when a larger size is chosen and dims with its brightness. Extended displays can
-/// be dragged around the main display, which stays fixed at the origin.
+/// be dragged around the main display, which stays fixed at the origin. While one is dragged the
+/// map takes the whole panel and closes in on it.
 private struct DisplayMap: View {
     let store: DisplayStore
+    @Binding var isArranging: Bool
+    let arrangingSize: CGSize
 
     @State private var drag: TileDrag?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let space = "map"
     private static let tileGap: CGFloat = 3
-    private static let alignmentReach: CGFloat = 8
+    private static let alignmentReach: CGFloat = 3
+    private static let edgeReach: CGFloat = 4
 
     private var settleAnimation: Animation? {
         reduceMotion ? nil : .snappy(duration: 0.25)
@@ -121,7 +149,7 @@ private struct DisplayMap: View {
                     .opacity(isDragged ? 0.85 : 1)
                     .shadow(color: .black.opacity(isDragged ? 0.35 : 0), radius: 6, y: 2)
                     .highPriorityGesture(
-                        dragGesture(for: display, fitted: fitted, mapSize: proxy.size),
+                        dragGesture(for: display, fitted: fitted),
                         including: display.canMove ? .all : .subviews
                     )
                     .grabCursor(display.canMove, isDragging: isDragged)
@@ -140,7 +168,6 @@ private struct DisplayMap: View {
             }
         }
         .coordinateSpace(.named(Self.space))
-        .frame(height: Metrics.mapHeight)
         .animation(settleAnimation, value: store.displays.map { store.bounds(of: $0) })
     }
 
@@ -155,46 +182,59 @@ private struct DisplayMap: View {
         store.displays.filter { $0.id != display.id }.map { store.bounds(of: $0) }
     }
 
-    private func dragGesture(for display: PhysicalDisplay, fitted: MapLayout, mapSize: CGSize) -> some Gesture {
+    private func dragGesture(for display: PhysicalDisplay, fitted: MapLayout) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .onChanged { value in
                 if drag?.id != display.id {
-                    beginDrag(of: display, at: value.startLocation, fitted: fitted, mapSize: mapSize)
+                    beginDrag(of: display, at: value.startLocation, fitted: fitted)
+                } else {
+                    updateDrag(of: display, cursor: value.location)
                 }
-                updateDrag(of: display, cursor: value.location)
             }
             .onEnded { _ in
                 guard let finished = drag else { return }
                 withAnimation(settleAnimation) {
                     drag = nil
+                    isArranging = false
                     store.move(display, to: finished.snapped)
                 }
             }
     }
 
-    private func beginDrag(of display: PhysicalDisplay, at start: CGPoint, fitted: MapLayout, mapSize: CGSize) {
+    /// The map fills the panel and closes in on the tile at once, and the pointer jumps with the spot
+    /// it holds. Neither animates, so they never part.
+    private func beginDrag(of display: PhysicalDisplay, at start: CGPoint, fitted: MapLayout) {
         let bounds = store.bounds(of: display)
-        let room = others(than: display)
-            .reduce(CGRect.null) { $0.union($1) }
-            .insetBy(dx: -bounds.width, dy: -bounds.height)
-        guard let zoomed = MapLayout(extent: room, size: mapSize) else { return }
+        let steps = DragViewport.steps(of: bounds, among: others(than: display))
+            .compactMap { MapLayout(extent: $0, size: arrangingSize) }
+        guard let first = steps.first else { return }
 
         let frame = fitted.frame(for: bounds)
+        let held = first.mapPoint(fromGlobal: fitted.globalPoint(fromMap: start))
         store.select(display)
-        withAnimation(settleAnimation) {
-            drag = TileDrag(
-                id: display.id,
-                size: bounds.size,
-                grab: CGPoint(x: (start.x - frame.minX) / frame.width, y: (start.y - frame.minY) / frame.height),
-                layout: zoomed,
-                proposed: bounds.origin,
-                snapped: bounds.origin
-            )
-        }
+        isArranging = true
+        drag = TileDrag(
+            id: display.id,
+            size: bounds.size,
+            grab: CGPoint(x: (start.x - frame.minX) / frame.width, y: (start.y - frame.minY) / frame.height),
+            steps: steps,
+            proposed: bounds.origin,
+            snapped: bounds.origin
+        )
+        Pointer.move(by: CGSize(width: held.x - start.x, height: held.y - start.y))
     }
 
     private func updateDrag(of display: PhysicalDisplay, cursor: CGPoint) {
         guard var current = drag else { return }
+        var cursor = cursor
+        if current.step < current.steps.count - 1, !isInside(cursor) {
+            let held = current.layout.globalPoint(fromMap: cursor)
+            current.step += 1
+            let moved = current.layout.mapPoint(fromGlobal: held)
+            Pointer.move(by: CGSize(width: moved.x - cursor.x, height: moved.y - cursor.y))
+            cursor = moved
+        }
+
         let held = current.layout.globalPoint(fromMap: cursor)
         current.proposed = CGPoint(
             x: held.x - current.grab.x * current.size.width,
@@ -207,6 +247,12 @@ private struct DisplayMap: View {
             alignmentTolerance: Self.alignmentReach / current.layout.scale
         )
         drag = current
+    }
+
+    private func isInside(_ point: CGPoint) -> Bool {
+        point.x >= Self.edgeReach && point.y >= Self.edgeReach
+            && point.x <= arrangingSize.width - Self.edgeReach
+            && point.y <= arrangingSize.height - Self.edgeReach
     }
 }
 
